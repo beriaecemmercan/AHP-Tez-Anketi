@@ -4,11 +4,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+# ===================== DOSYA YAPISI =====================
 BASE = os.path.join(os.path.expanduser("~"), "Desktop", "TEZ_KODLAR_SON")
-RESP_DIR = os.path.join(BASE, "survey_responses")
-os.makedirs(RESP_DIR, exist_ok=True)
-RAW_CSV = os.path.join(RESP_DIR, "ahp_raw.csv")
+os.makedirs(BASE, exist_ok=True)
 
+# ===================== KRİTERLER =====================
 aspects_tr = {
     "Accuracy/Consistency": "Doğruluk/Bilgi Tutarlılığı",
     "Code & Development": "Kod & Geliştiricilik",
@@ -25,6 +25,7 @@ n = len(aspect_keys)
 
 models = ["CHATGPT", "CLAUDE", "COPILOT", "GEMINI", "GROK"]
 
+# ===================== RAW SKOR MATRİSİ =====================
 raw_matrix = np.array([
     [0.534583, 0.430275, 0.847357, 0.665037, 0.488741, 0.344586, 0.835551, 0.361533],
     [0.606707, 0.643581, 0.829183, 0.659910, 0.600000, 0.472727, 0.722222, 0.361533],
@@ -33,7 +34,12 @@ raw_matrix = np.array([
     [0.700422, 0.548165, 0.914431, 0.852204, 0.663430, 0.437500, 0.760081, 0.000000],
 ])
 
-scale_labels = ["L9", "L8", "L7", "L6", "L5", "L4", "L3", "L2", "EQ", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"]
+# ===================== SAATY ÖLÇEĞİ =====================
+scale_labels = [
+    "L9", "L8", "L7", "L6", "L5", "L4", "L3", "L2",
+    "EQ",
+    "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"
+]
 
 def get_saaty_value(label: str) -> float:
     if label == "EQ":
@@ -42,8 +48,9 @@ def get_saaty_value(label: str) -> float:
         return float(int(label[1:]))
     if label.startswith("R"):
         return 1.0 / float(int(label[1:]))
-    raise ValueError(f"Invalid scale label: {label}")
+    raise ValueError("Geçersiz ölçek")
 
+# ===================== AHP =====================
 def calculate_ahp(A: np.ndarray):
     eigvals, eigvecs = np.linalg.eig(A)
     idx = int(np.argmax(eigvals.real))
@@ -51,41 +58,44 @@ def calculate_ahp(A: np.ndarray):
     w = w / w.sum()
 
     lambda_max = float(eigvals[idx].real)
-    CI = (lambda_max - n) / (n - 1) if n > 1 else 0.0
-    RI = {1: 0.0, 2: 0.0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45}.get(n, 1.45)
+    CI = (lambda_max - n) / (n - 1)
+    RI = {3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41}.get(n, 1.45)
     CR = CI / RI if RI > 0 else 0.0
     return w, CR
 
-def topsis(decision_matrix: np.ndarray, weights: np.ndarray, benefit_mask: np.ndarray):
-    X = decision_matrix.astype(float)
+# ===================== STREAMLIT =====================
+st.set_page_config(page_title="Karar Destek Sistemi", layout="wide")
+st.title("Size En Uygun Yapay Zekâ Asistanı Önerisi")
 
-    denom = np.sqrt((X ** 2).sum(axis=0))
-    denom[denom == 0] = 1.0
-    R = X / denom
+st.markdown("""
+Bu anket, kullanıcıların yapay zekâ uygulamalarını değerlendirirken
+hangi özelliklere daha fazla önem verdiğini belirlemek amacıyla hazırlanmıştır.
 
-    V = R * weights
+Anket kapsamında, her adımda iki farklı özellik karşılaştırılacaktır
+(örneğin *Eğitim/Öğrenme* ile *Fiyat/Maliyet*).
+Orta alanda yer alan seçim çubuğunu kullanarak, sizin için
+hangi özelliğin daha önemli olduğunu belirtmeniz beklenmektedir.
 
-    ideal = np.zeros(V.shape[1])
-    anti = np.zeros(V.shape[1])
-    for j in range(V.shape[1]):
-        if benefit_mask[j]:
-            ideal[j] = V[:, j].max()
-            anti[j]  = V[:, j].min()
-        else:
-            ideal[j] = V[:, j].min()
-            anti[j]  = V[:, j].max()
+Seçim ölçeği aşağıdaki şekilde yorumlanmalıdır:
 
-    d_pos = np.sqrt(((V - ideal) ** 2).sum(axis=1))
-    d_neg = np.sqrt(((V - anti) ** 2).sum(axis=1))
+- **EQ**: Her iki özellik eşit derecede önemlidir  
+- **L2 – L9**: Soldaki özellik daha önemlidir  
+  *(değer arttıkça önem farkı büyür)*  
+- **R2 – R9**: Sağdaki özellik daha önemlidir  
+  *(değer arttıkça önem farkı büyür)*  
 
-    cc = d_neg / (d_pos + d_neg + 1e-12)
-    return cc, d_pos, d_neg
+Tüm karşılaştırmalar tamamlandıktan sonra **HESAPLAMAYI BAŞLAT**
+butonuna basıldığında, sistem belirlenen önceliklere göre
+uygulamaları puanlayacak ve en uygun seçeneği önerecektir.
+""")
 
-st.set_page_config(page_title="Tez Analiz Paneli", layout="wide")
-st.title("Yapay Zekâ Uygulamaları için Çok Kriterli Karar Destek Sistemi")
+st.divider()
 
+# ===================== PAIRWISE =====================
 pairs = list(itertools.combinations(range(n), 2))
 responses = {}
+
+st.subheader("1) Önceliklerinizi Seçin (Kıyaslama)")
 
 for (i, j) in pairs:
     l_name = aspects_tr[aspect_keys[i]]
@@ -96,7 +106,7 @@ for (i, j) in pairs:
     col3.markdown(f"**{r_name}**")
 
     val = col2.select_slider(
-        f"{l_name} vs {r_name}",
+        "Karşılaştırma",
         options=scale_labels,
         value="EQ",
         key=f"p_{i}_{j}",
@@ -104,50 +114,46 @@ for (i, j) in pairs:
     )
     responses[(i, j)] = get_saaty_value(val)
 
+# ===================== HESAPLAMA =====================
+st.divider()
 if st.button("HESAPLAMAYI BAŞLAT", use_container_width=True, type="primary"):
     A = np.ones((n, n))
-    for (i, j), value in responses.items():
-        A[i, j] = value
-        A[j, i] = 1.0 / value
+    for (i, j), v in responses.items():
+        A[i, j] = v
+        A[j, i] = 1 / v
 
     weights, CR = calculate_ahp(A)
 
-    st.divider()
-    col_a, col_b = st.columns(2)
+    if CR > 0.10:
+        st.error(f"Seçimleriniz birbiriyle biraz çelişiyor (Tutarlılık Oranı CR = {CR:.3f}). "
+                 f"Lütfen birkaç karşılaştırmayı gözden geçirip tekrar deneyin.")
+        st.stop()
 
-    with col_a:
-        st.subheader("Kriter Ağırlıkları")
-        results = pd.DataFrame({
+    # ===================== SAW =====================
+    saw_scores = raw_matrix @ weights
+
+    ranking = pd.DataFrame({
+        "Model": models,
+        "Skor": np.round(saw_scores, 4)
+    }).sort_values("Skor", ascending=False).reset_index(drop=True)
+
+    # ===================== SONUÇ EKRANI =====================
+    st.subheader("2) Sonuçlar")
+
+    left, right = st.columns([1, 1])
+
+    with left:
+        st.markdown("### Kriter Ağırlıkları (Sizin Öncelikleriniz)")
+        weights_df = pd.DataFrame({
             "Kriter": [aspects_tr[k] for k in aspect_keys],
-            "Puan": np.round(weights, 4)
-        }).sort_values("Puan", ascending=False)
-        st.table(results)
-        st.write(f"Tutarlılık Oranı (CR): {CR:.4f}")
+            "Ağırlık": np.round(weights, 4)
+        }).sort_values("Ağırlık", ascending=False).reset_index(drop=True)
+        st.table(weights_df)
+        st.caption(f"Tutarlılık Oranı (CR): {CR:.4f} (0.10 ve altı iyi kabul edilir)")
 
-        with st.expander("Pairwise Karar Matrisi (A)"):
-            st.dataframe(pd.DataFrame(
-                A,
-                index=[aspects_tr[k] for k in aspect_keys],
-                columns=[aspects_tr[k] for k in aspect_keys]
-            ))
+    with right:
+        st.markdown(f"### Önerilen Model: **{ranking.iloc[0]['Model']}**")
+        st.table(ranking)
 
-    with col_b:
-        if CR <= 0.10:
-            # Varsayım yapmıyoruz: hepsi benefit (yüksek daha iyi)
-            benefit_mask = np.array([True] * n)
-
-            cc, d_pos, d_neg = topsis(raw_matrix, weights, benefit_mask)
-
-            ranking = pd.DataFrame({
-                "Model": models,
-                "TOPSIS Skoru (CC)": np.round(cc, 4),
-                "d+": np.round(d_pos, 4),
-                "d-": np.round(d_neg, 4),
-            }).sort_values("TOPSIS Skoru (CC)", ascending=False)
-
-            st.subheader(f"Önerilen: {ranking.iloc[0]['Model']}")
-            st.table(ranking.reset_index(drop=True))
-            st.bar_chart(ranking.set_index("Model")[["TOPSIS Skoru (CC)"]])
-        else:
-            st.error("Tutarsız Seçimler. Lütfen tercihleri gözden geçirin.")
-
+        st.markdown("### Model Skor Grafiği")
+        st.bar_chart(ranking.set_index("Model")[["Skor"]])
