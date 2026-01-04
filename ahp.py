@@ -8,16 +8,17 @@ import streamlit as st
 BASE = os.path.join(os.path.expanduser("~"), "Desktop", "TEZ_KODLAR_SON")
 os.makedirs(BASE, exist_ok=True)
 
-# ===================== KRİTERLER =====================
+# ===================== KRİTERLER (9 ASPECT) =====================
 aspects_tr = {
-    "Accuracy/Consistency": "Doğruluk/Bilgi Tutarlılığı",
-    "Code & Development": "Kod & Geliştiricilik",
+    "Accuracy/Consistency": "Doğruluk ve Bilgi Tutarlılığı",
+    "Code & Development": "Kod ve Geliştiricilik Yetkinliği",
     "Overall Satisfaction": "Genel Memnuniyet",
-    "Interface/Usability": "Arayüz/Kolaylık",
-    "Creativity/Visual": "Yaratıcılık/Görsel",
-    "System Performance/Uptime": "Sistem Performansı/Kesintisizlik",
-    "Education/Learning": "Eğitim/Öğrenme",
-    "Price/Cost": "Fiyat/Maliyet"
+    "Interface/Usability": "Arayüz ve Kullanılabilirlik",
+    "Creativity/Visual": "Yaratıcılık ve Görsel Oluşturma",
+    "System Performance/Uptime": "Sistem Performansı ve Kesintisizlik",
+    "Education/Learning": "Eğitim ve Öğrenme Desteği",
+    "Subscription Fee": "Abonelik Ücreti",
+    "User Count": "Kullanıcı Sayısı"
 }
 
 aspect_keys = list(aspects_tr.keys())
@@ -26,12 +27,14 @@ n = len(aspect_keys)
 models = ["CHATGPT", "CLAUDE", "COPILOT", "GEMINI", "GROK"]
 
 # ===================== RAW SKOR MATRİSİ =====================
+# Satırlar: ChatGPT, Claude, Copilot, Gemini, Grok
+# Sütunlar: aspect_keys sırası
 raw_matrix = np.array([
-    [0.534583, 0.430275, 0.847357, 0.665037, 0.488741, 0.344586, 0.835551, 0.361533],
-    [0.606707, 0.643581, 0.829183, 0.659910, 0.600000, 0.472727, 0.722222, 0.361533],
-    [0.697545, 0.629730, 0.910492, 0.832819, 0.659259, 0.590580, 0.815493, 0.805134],
-    [0.424970, 0.376968, 0.798503, 0.642006, 0.579021, 0.347259, 0.691142, 1.000000],
-    [0.700422, 0.548165, 0.914431, 0.852204, 0.663430, 0.437500, 0.760081, 0.000000],
+    [0.534583, 0.430275, 0.847357, 0.665037, 0.488741, 0.344586, 0.835551, 0.361533, 1.000000],  # ChatGPT
+    [0.606707, 0.643581, 0.829183, 0.659910, 0.600000, 0.472727, 0.722222, 0.361533, 0.000000],  # Claude
+    [0.697545, 0.629730, 0.910492, 0.832819, 0.659259, 0.590580, 0.815493, 0.805134, 0.041580],  # Copilot
+    [0.424970, 0.376968, 0.798503, 0.642006, 0.579021, 0.347259, 0.691142, 1.000000, 0.501690],  # Gemini
+    [0.700422, 0.548165, 0.914431, 0.852204, 0.663430, 0.437500, 0.760081, 0.000000, 0.081480],  # Grok
 ])
 
 # ===================== SAATY ÖLÇEĞİ =====================
@@ -48,9 +51,9 @@ def get_saaty_value(label: str) -> float:
         return float(int(label[1:]))
     if label.startswith("R"):
         return 1.0 / float(int(label[1:]))
-    raise ValueError("Geçersiz ölçek")
+    raise ValueError("Geçersiz Saaty ölçeği")
 
-# ===================== AHP =====================
+# ===================== AHP HESABI =====================
 def calculate_ahp(A: np.ndarray):
     eigvals, eigvecs = np.linalg.eig(A)
     idx = int(np.argmax(eigvals.real))
@@ -59,51 +62,47 @@ def calculate_ahp(A: np.ndarray):
 
     lambda_max = float(eigvals[idx].real)
     CI = (lambda_max - n) / (n - 1)
-    RI = {3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41}.get(n, 1.45)
+
+    RI_table = {3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41}
+    RI = RI_table.get(n, 1.45)
+
     CR = CI / RI if RI > 0 else 0.0
     return w, CR
 
-# ===================== STREAMLIT =====================
+# ===================== STREAMLIT AYARLARI =====================
 st.set_page_config(page_title="Karar Destek Sistemi", layout="wide")
 st.title("Size En Uygun Yapay Zekâ Asistanı Önerisi")
 
 st.markdown("""
-Bu anket, kullanıcıların yapay zekâ uygulamalarını değerlendirirken
+Bu anket, kullanıcıların üretken yapay zekâ uygulamalarını değerlendirirken
 hangi özelliklere daha fazla önem verdiğini belirlemek amacıyla hazırlanmıştır.
 
-Anket kapsamında, her adımda iki farklı özellik karşılaştırılacaktır
-(örneğin *Eğitim/Öğrenme* ile *Fiyat/Maliyet*).
-Orta alanda yer alan seçim çubuğunu kullanarak, sizin için
-hangi özelliğin daha önemli olduğunu belirtmeniz beklenmektedir.
+Her adımda iki farklı değerlendirme boyutu karşılaştırılacaktır.
+Seçimlerinizi Saaty ölçeğine göre yapmanız beklenmektedir.
 
-Seçim ölçeği aşağıdaki şekilde yorumlanmalıdır:
-
-- **EQ**: Her iki özellik eşit derecede önemlidir  
-- **L2 – L9**: Soldaki özellik daha önemlidir  
-  *(değer arttıkça önem farkı büyür)*  
-- **R2 – R9**: Sağdaki özellik daha önemlidir  
-  *(değer arttıkça önem farkı büyür)*  
+- **EQ**: Her iki kriter eşit derecede önemlidir  
+- **L2 – L9**: Soldaki kriter daha önemlidir  
+- **R2 – R9**: Sağdaki kriter daha önemlidir  
 
 Tüm karşılaştırmalar tamamlandıktan sonra **HESAPLAMAYI BAŞLAT**
-butonuna basıldığında, sistem belirlenen önceliklere göre
-uygulamaları puanlayacak ve en uygun seçeneği önerecektir.
+butonuna basarak sonuçları görüntüleyebilirsiniz.
 """)
 
 st.divider()
 
-# ===================== PAIRWISE =====================
+# ===================== İKİLİ KARŞILAŞTIRMALAR =====================
 pairs = list(itertools.combinations(range(n), 2))
 responses = {}
 
-st.subheader("1) Önceliklerinizi Seçin (Kıyaslama)")
+st.subheader("1) Kriter Önceliklerini Belirleyin")
 
 for (i, j) in pairs:
-    l_name = aspects_tr[aspect_keys[i]]
-    r_name = aspects_tr[aspect_keys[j]]
+    left_name = aspects_tr[aspect_keys[i]]
+    right_name = aspects_tr[aspect_keys[j]]
 
     col1, col2, col3 = st.columns([2, 5, 2])
-    col1.markdown(f"**{l_name}**")
-    col3.markdown(f"**{r_name}**")
+    col1.markdown(f"**{left_name}**")
+    col3.markdown(f"**{right_name}**")
 
     val = col2.select_slider(
         "Karşılaştırma",
@@ -116,6 +115,7 @@ for (i, j) in pairs:
 
 # ===================== HESAPLAMA =====================
 st.divider()
+
 if st.button("HESAPLAMAYI BAŞLAT", use_container_width=True, type="primary"):
     A = np.ones((n, n))
     for (i, j), v in responses.items():
@@ -125,8 +125,10 @@ if st.button("HESAPLAMAYI BAŞLAT", use_container_width=True, type="primary"):
     weights, CR = calculate_ahp(A)
 
     if CR > 0.10:
-        st.error(f"Seçimleriniz birbiriyle biraz çelişiyor (Tutarlılık Oranı CR = {CR:.3f}). "
-                 f"Lütfen birkaç karşılaştırmayı gözden geçirip tekrar deneyin.")
+        st.error(
+            f"Tutarlılık Oranı yüksek (CR = {CR:.3f}). "
+            "Lütfen bazı karşılaştırmaları gözden geçiriniz."
+        )
         st.stop()
 
     # ===================== SAW =====================
@@ -134,26 +136,25 @@ if st.button("HESAPLAMAYI BAŞLAT", use_container_width=True, type="primary"):
 
     ranking = pd.DataFrame({
         "Model": models,
-        "Skor": np.round(saw_scores, 4)
-    }).sort_values("Skor", ascending=False).reset_index(drop=True)
+        "Toplam Skor": np.round(saw_scores, 4)
+    }).sort_values("Toplam Skor", ascending=False).reset_index(drop=True)
 
-    # ===================== SONUÇ EKRANI =====================
+    # ===================== SONUÇLAR =====================
     st.subheader("2) Sonuçlar")
 
     left, right = st.columns([1, 1])
 
     with left:
-        st.markdown("### Kriter Ağırlıkları (Sizin Öncelikleriniz)")
+        st.markdown("### Kriter Ağırlıkları (AHP Sonuçları)")
         weights_df = pd.DataFrame({
             "Kriter": [aspects_tr[k] for k in aspect_keys],
             "Ağırlık": np.round(weights, 4)
         }).sort_values("Ağırlık", ascending=False).reset_index(drop=True)
         st.table(weights_df)
-        st.caption(f"Tutarlılık Oranı (CR): {CR:.4f} (0.10 ve altı iyi kabul edilir)")
+        st.caption(f"Tutarlılık Oranı (CR): {CR:.4f}")
 
     with right:
         st.markdown(f"### Önerilen Model: **{ranking.iloc[0]['Model']}**")
         st.table(ranking)
-
-        st.markdown("### Model Skor Grafiği")
-        st.bar_chart(ranking.set_index("Model")[["Skor"]])
+        st.markdown("### Model Skor Dağılımı")
+        st.bar_chart(ranking.set_index("Model")[["Toplam Skor"]])
